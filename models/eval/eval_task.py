@@ -56,6 +56,10 @@ class EvalTask(Eval):
         # goal instr
         goal_instr = traj_data['turk_annotations']['anns'][r_idx]['task_desc']
 
+        ################################################################################################
+        expert_init_actions = [a['discrete_action'] for a in traj_data['plan']['low_actions']]
+        ################################################################################################
+
         done, success = False, False
         fails = 0
         t = 0
@@ -69,19 +73,38 @@ class EvalTask(Eval):
             curr_image = Image.fromarray(np.uint8(env.last_event.frame))
             feat['frames'] = resnet.featurize([curr_image], batch=1).unsqueeze(0)
 
+            ###################################################################################################
+            GT = True
+
+            if GT:
+                if t == len(expert_init_actions):  # GT doesn't have the STOP token.
+                    break
+                action = expert_init_actions[t]['action']
+                compressed_mask = expert_init_actions[t]['args']['mask'] if 'mask' in expert_init_actions[t][
+                    'args'] else None
+                mask = env.decompress_mask(compressed_mask) if compressed_mask is not None else None
+
+                if action == cls.STOP_TOKEN:
+                    print("\tpredicted STOP")
+                    break
+            ###################################################################################################
+
             # forward model
             m_out = model.step(feat)
-            m_pred = model.extract_preds(m_out, [traj_data], feat, clean_special_tokens=False)
-            m_pred = list(m_pred.values())[0]
+            ##############################################################################################
+            if not GT:
+            #############################################################################################
+                m_pred = model.extract_preds(m_out, [traj_data], feat, clean_special_tokens=False)
+                m_pred = list(m_pred.values())[0]
 
-            # check if <<stop>> was predicted
-            if m_pred['action_low'] == cls.STOP_TOKEN:
-                print("\tpredicted STOP")
-                break
+                # check if <<stop>> was predicted
+                if m_pred['action_low'] == cls.STOP_TOKEN:
+                    print("\tpredicted STOP")
+                    break
 
-            # get action and mask
-            action, mask = m_pred['action_low'], m_pred['action_low_mask'][0]
-            mask = np.squeeze(mask, axis=0) if model.has_interaction(action) else None
+                # get action and mask
+                action, mask = m_pred['action_low'], m_pred['action_low_mask'][0]
+                mask = np.squeeze(mask, axis=0) if model.has_interaction(action) else None
 
             # print action
             if args.debug:

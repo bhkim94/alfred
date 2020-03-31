@@ -66,6 +66,9 @@ class EvalSubgoals(Eval):
 
         # expert demonstration to reach eval_idx-1
         expert_init_actions = [a['discrete_action'] for a in traj_data['plan']['low_actions'] if a['high_idx'] < eval_idx]
+        ###################################################################################################################
+        expert_init_actions_gt = [a['discrete_action'] for a in traj_data['plan']['low_actions']]
+        ###################################################################################################################
 
         # subgoal info
         subgoal_action = traj_data['plan']['high_pddl'][eval_idx]['discrete_action']['action']
@@ -117,14 +120,32 @@ class EvalSubgoals(Eval):
 
             # subgoal evaluation
             else:
+                #############################################################################################
+                GT = True
+
+                if GT:
+                    if t == len(expert_init_actions_gt): # GT doesn't have the STOP token.
+                        break
+
+                    action = expert_init_actions_gt[t]['action']
+
+                    compressed_mask = expert_init_actions_gt[t]['args']['mask'] if 'mask' in expert_init_actions_gt[t][
+                        'args'] else None
+                    mask = env.decompress_mask(compressed_mask) if compressed_mask is not None else None
+                ##############################################################################################
+
                 # forward model
                 m_out = model.step(feat, prev_action=prev_action)
-                m_pred = model.extract_preds(m_out, [traj_data], feat, clean_special_tokens=False)
-                m_pred = list(m_pred.values())[0]
 
-                # get action and mask
-                action, mask = m_pred['action_low'], m_pred['action_low_mask'][0]
-                mask = np.squeeze(mask, axis=0) if model.has_interaction(action) else None
+                ##############################################################################################
+                if not GT:
+                ##############################################################################################
+                    m_pred = model.extract_preds(m_out, [traj_data], feat, clean_special_tokens=False)
+                    m_pred = list(m_pred.values())[0]
+
+                    # get action and mask
+                    action, mask = m_pred['action_low'], m_pred['action_low_mask'][0]
+                    mask = np.squeeze(mask, axis=0) if model.has_interaction(action) else None
 
                 # debug
                 if args.debug:
@@ -148,6 +169,14 @@ class EvalSubgoals(Eval):
 
                 # update subgoals
                 curr_subgoal_idx = env.get_subgoal_idx()
+                ###############################################################################################
+                print("=" * 50)
+                print("t: {} / {}".format(t+1, len(expert_init_actions_gt)))
+                print("fail: {} / {}".format(fails, args.max_fails))
+                print("Env idx: {}".format(env.get_subgoal_idx()))
+                print("Eval idx: {}".format(eval_idx))
+                print("=" * 50)
+                ###############################################################################################
                 if curr_subgoal_idx == eval_idx:
                     subgoal_success = True
                     break
